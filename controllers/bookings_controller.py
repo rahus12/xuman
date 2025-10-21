@@ -9,6 +9,7 @@ from repositories.services_repository import ServicesRepository
 from repositories.users_repository import UsersRepository
 from services.bookings_service import BookingsService
 from database import get_db
+from rate_limiter import booking_rate_limit
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
 
@@ -57,6 +58,7 @@ body example: {
   }'
 '''
 @router.post("/", response_model=BookingResponse, status_code=status.HTTP_201_CREATED)
+@booking_rate_limit()
 async def create_booking(
     payload: BookingCreateRequest, 
     current_user: User = Depends(get_current_user),

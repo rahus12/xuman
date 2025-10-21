@@ -32,5 +32,9 @@ pytest-cov==4.1.0
 # Logging
 structlog==25.4.0
 
+# Rate Limiting
+slowapi==0.1.9
+redis==5.0.1
+
 # Additional utilities
 uuid==1.30

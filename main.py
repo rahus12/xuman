@@ -7,12 +7,18 @@ from controllers.email_controller import router as email_router
 from controllers.password_reset_controller import router as password_reset_router
 from controllers.payments_controller import router as payments_router
 from controllers.notifications_controller import router as notifications_router
+from rate_limiter import limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 import uvicorn
 import os
 from dotenv import load_dotenv
 
 app = FastAPI(title="Service Marketplace API", version="1.0.0")
+
+# Add rate limiting to the app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 @app.get("/")
 async def root():

@@ -20,6 +20,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: marketplace_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - marketplace_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   # FastAPI Application
   app:
     build: .
@@ -27,6 +44,9 @@ services:
     environment:
       # Database Configuration
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-marketplace}
+      
+      # Redis Configuration
+      REDIS_URL: redis://redis:6379/0
       
       # JWT Configuration
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
@@ -47,6 +67,11 @@ services:
       
       # Payment Configuration
       PAYMENT_FAILURE_RATE: ${PAYMENT_FAILURE_RATE:-0.1}
+      
+      # Rate Limiting Configuration
+      LOGIN_RATE_LIMIT: ${LOGIN_RATE_LIMIT:-5/hour}
+      BOOKING_RATE_LIMIT: ${BOOKING_RATE_LIMIT:-20/hour}
+      BROWSING_RATE_LIMIT: ${BROWSING_RATE_LIMIT:-100/hour}
     volumes:
       - ./logs:/app/logs
       - ./email_notifications:/app/email_notifications
@@ -54,6 +79,8 @@ services:
       - "8000:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - marketplace_network
@@ -66,6 +93,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
 
 networks:
   marketplace_network:

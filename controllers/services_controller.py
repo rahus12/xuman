@@ -7,6 +7,7 @@ from services.services_service import ServicesService
 from repositories.services_repository import ServicesRepository
 from database import get_db
 from auth import get_current_user
+from rate_limiter import browsing_rate_limit
 
 router = APIRouter(prefix="/services", tags=["services"])
 
@@ -26,11 +27,13 @@ def get_service_layer(db: Session = Depends(get_db)) -> ServicesService:
 
 # GET all services, anyone can view services
 @router.get("/", response_model=List[ServiceResponse])
+@browsing_rate_limit()
 async def list_services(service: ServicesService = Depends(get_service_layer)):
     return service.list_services()
 
 # Get a specific service, anyone can view services
 @router.get("/{service_id}", response_model=ServiceResponse)
+@browsing_rate_limit()
 async def get_service(service_id: str, service: ServicesService = Depends(get_service_layer)):
     result = service.get_service(service_id)
     if not result:

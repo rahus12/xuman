@@ -8,6 +8,7 @@ from repositories.users_repository import UsersRepository
 from database import get_db
 from auth import create_access_token, authenticate_user, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 from logging_config import get_logger, log_api_request, log_security_event
+from rate_limiter import login_rate_limit
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -17,6 +18,7 @@ def get_users_service(db: Session = Depends(get_db)) -> UsersService:
 
 
 @router.post("/login", response_model=TokenResponse)
+@login_rate_limit()
 async def login(
     request: Request,
     login_data: LoginRequest, 
