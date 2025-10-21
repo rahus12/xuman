@@ -14,9 +14,9 @@ redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client = redis.from_url(redis_url, decode_responses=True)
 
 # Rate limiting configuration from environment variables
-LOGIN_RATE_LIMIT = os.getenv("LOGIN_RATE_LIMIT", "5/hour")
-BOOKING_RATE_LIMIT = os.getenv("BOOKING_RATE_LIMIT", "20/hour")
-BROWSING_RATE_LIMIT = os.getenv("BROWSING_RATE_LIMIT", "100/hour")
+LOGIN_RATE_LIMIT = os.getenv("LOGIN_RATE_LIMIT", "100/hour")
+BOOKING_RATE_LIMIT = os.getenv("BOOKING_RATE_LIMIT", "200/hour")
+BROWSING_RATE_LIMIT = os.getenv("BROWSING_RATE_LIMIT", "1000/hour")
 
 # Create limiter instance
 limiter = Limiter(

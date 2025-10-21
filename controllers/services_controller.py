@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List
 
 from models import ServiceCreateRequest, ServiceResponse, User, UserRole
 from services.services_service import ServicesService
 from repositories.services_repository import ServicesRepository
+from repositories.users_repository import UsersRepository
 from database import get_db
 from auth import get_current_user
 from rate_limiter import browsing_rate_limit
@@ -13,12 +14,12 @@ router = APIRouter(prefix="/services", tags=["services"])
 
 
 def get_service_layer(db: Session = Depends(get_db)) -> ServicesService:
-    return ServicesService(ServicesRepository(db))
+    return ServicesService(ServicesRepository(db), UsersRepository(db))
 
 
 # def require_service_provider(current_user: User = Depends(get_current_user)) -> User:
 #     """Require the current user to be a service provider"""
-#     if current_user.role != UserRole.SERVICE_PROVIDER:
+#     if current_user.role != UserRole.PROVIDER:
 #         raise HTTPException(
 #             status_code=status.HTTP_403_FORBIDDEN,
 #             detail="Only service providers can perform this action"
@@ -28,13 +29,13 @@ def get_service_layer(db: Session = Depends(get_db)) -> ServicesService:
 # GET all services, anyone can view services
 @router.get("/", response_model=List[ServiceResponse])
 @browsing_rate_limit()
-async def list_services(service: ServicesService = Depends(get_service_layer)):
+async def list_services(request: Request, service: ServicesService = Depends(get_service_layer)):
     return service.list_services()
 
 # Get a specific service, anyone can view services
 @router.get("/{service_id}", response_model=ServiceResponse)
 @browsing_rate_limit()
-async def get_service(service_id: str, service: ServicesService = Depends(get_service_layer)):
+async def get_service(service_id: str, request: Request, service: ServicesService = Depends(get_service_layer)):
     result = service.get_service(service_id)
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
@@ -49,7 +50,7 @@ async def create_service(
 ):
     """Create a new service - only service providers can create services"""
     # Role validation: only service providers can create services
-    if current_user.role != UserRole.SERVICE_PROVIDER:
+    if current_user.role != UserRole.PROVIDER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only service providers can create services"
@@ -67,7 +68,7 @@ async def update_service(
 ):
     """Update a service - only the service owner can update their own service"""
     # Role validation: only service providers can update services
-    if current_user.role != UserRole.SERVICE_PROVIDER:
+    if current_user.role != UserRole.PROVIDER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only service providers can update services"
@@ -90,7 +91,7 @@ async def delete_service(
 ):
     """Delete a service - only the service owner can delete their own service"""
     # Role validation: only service providers can delete services
-    if current_user.role != UserRole.SERVICE_PROVIDER:
+    if current_user.role != UserRole.PROVIDER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only service providers can delete services"

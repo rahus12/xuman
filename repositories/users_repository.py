@@ -26,6 +26,24 @@ class UsersRepository:
         self.logger.info("Users retrieved from database", count=len(users), role_filter=role)
         return users
 
+    def get_by_id(self, user_id: str) -> Optional[User]:
+        self.logger.info("Querying user by ID", user_id=user_id)
+        # Input validation
+        if not user_id or not isinstance(user_id, str):
+            self.logger.error("Invalid user_id provided", user_id=user_id)
+            raise ValueError("user_id must be a non-empty string")
+        
+        # Parameterized query - safe from SQL injection
+        query = select(text("*")).select_from(text("users")).where(text("id = :user_id"))
+        result = self.db.execute(query, {"user_id": user_id}).fetchone()
+        
+        if result:
+            self.logger.info("User found in database", user_id=user_id, email=result.email)
+            return self._row_to_model(result)
+        else:
+            self.logger.info("User not found", user_id=user_id)
+            return None
+
     def get_by_email(self, email: str) -> Optional[User]:
         self.logger.info("Querying user by email", email=email)
         # Input validation

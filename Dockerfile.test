@@ -1,0 +1,58 @@
+# Test-specific Dockerfile that includes test dependencies
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    TESTING=1
+
+# Set work directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libpq-dev \
+    curl \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies including test dependencies
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir pytest pytest-asyncio httpx pytest-cov psycopg
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p logs email_notifications
+
+# Create test database setup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "Waiting for postgres..."\n\
+until pg_isready -h postgres -U postgres; do\n\
+  sleep 1\n\
+done\n\
+echo "PostgreSQL is ready!"\n\
+\n\
+# Create test database\n\
+PGPASSWORD=postgres psql -h postgres -U postgres -c "DROP DATABASE IF EXISTS marketplace_test;" || true\n\
+PGPASSWORD=postgres psql -h postgres -U postgres -c "CREATE DATABASE marketplace_test;"\n\
+echo "Test database created!"\n\
+\n\
+# Run tests\n\
+echo "Running tests..."\n\
+python run_all_tests.py\n\
+' > /app/run_docker_tests.sh && chmod +x /app/run_docker_tests.sh
+
+# Default command runs tests
+CMD ["./run_docker_tests.sh"]
+

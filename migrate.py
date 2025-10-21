@@ -106,21 +106,21 @@ def seed_database():
             conn.execute(text("""
                 INSERT INTO users (id, email, password, role, profile, created_at, updated_at)
                 VALUES 
-                ('550e8400-e29b-41d4-a716-446655440001', 'admin@marketplace.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/9.8.8.8', 'provider', 
+                ('550e8400-e29b-41d4-a716-446655440001', 'admin@marketplace.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/9.8.8.8', 'PROVIDER', 
                  '{"firstName": "Admin", "lastName": "User", "phone": "+1234567890", "address": "123 Admin St"}', NOW(), NOW()),
-                ('550e8400-e29b-41d4-a716-446655440002', 'provider@marketplace.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/9.8.8.8', 'provider',
+                ('550e8400-e29b-41d4-a716-446655440002', 'provider@marketplace.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/9.8.8.8', 'PROVIDER',
                  '{"firstName": "Service", "lastName": "Provider", "phone": "+1234567891", "address": "456 Provider Ave"}', NOW(), NOW()),
-                ('550e8400-e29b-41d4-a716-446655440003', 'customer@marketplace.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/9.8.8.8', 'customer',
+                ('550e8400-e29b-41d4-a716-446655440003', 'customer@marketplace.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/9.8.8.8', 'CUSTOMER',
                  '{"firstName": "Test", "lastName": "Customer", "phone": "+1234567892", "address": "789 Customer Blvd"}', NOW(), NOW())
             """))
             
             # Sample services
             conn.execute(text("""
-                INSERT INTO services (id, provider_id, title, description, category, price, currency, duration, availability, images, is_active, created_at)
+                INSERT INTO services (id, provider_id, name, description, price, duration_minutes, availability, status, created_at, updated_at)
                 VALUES 
-                ('660e8400-e29b-41d4-a716-446655440001', '550e8400-e29b-41d4-a716-446655440002', 'Web Development', 'Professional web development services', 'technology', 100.00, 'USD', 120, '["09:00-17:00"]', '[]', true, NOW()),
-                ('660e8400-e29b-41d4-a716-446655440002', '550e8400-e29b-41d4-a716-446655440002', 'Mobile App Development', 'iOS and Android app development', 'technology', 150.00, 'USD', 180, '["09:00-17:00"]', '[]', true, NOW()),
-                ('660e8400-e29b-41d4-a716-446655440003', '550e8400-e29b-41d4-a716-446655440001', 'Consulting', 'Business consulting services', 'business', 200.00, 'USD', 60, '["10:00-16:00"]', '[]', true, NOW())
+                ('660e8400-e29b-41d4-a716-446655440001', '550e8400-e29b-41d4-a716-446655440002', 'Web Development', 'Professional web development services', 100.00, 120, '{"monday": ["09:00", "17:00"], "tuesday": ["09:00", "17:00"], "wednesday": ["09:00", "17:00"], "thursday": ["09:00", "17:00"], "friday": ["09:00", "17:00"]}', 'ACTIVE', NOW(), NOW()),
+                ('660e8400-e29b-41d4-a716-446655440002', '550e8400-e29b-41d4-a716-446655440002', 'Mobile App Development', 'iOS and Android app development', 150.00, 180, '{"monday": ["10:00", "18:00"], "tuesday": ["10:00", "18:00"], "wednesday": ["10:00", "18:00"], "thursday": ["10:00", "18:00"], "friday": ["10:00", "18:00"]}', 'ACTIVE', NOW(), NOW()),
+                ('660e8400-e29b-41d4-a716-446655440003', '550e8400-e29b-41d4-a716-446655440001', 'Consulting', 'Business consulting services', 200.00, 60, '{"monday": ["08:00", "16:00"], "tuesday": ["08:00", "16:00"], "wednesday": ["08:00", "16:00"], "thursday": ["08:00", "16:00"], "friday": ["08:00", "16:00"]}', 'ACTIVE', NOW(), NOW())
             """))
             
             conn.commit()

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -42,7 +42,8 @@ async def get_booking(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
     
     # Check if user has access to this booking (either customer or provider)
-    if result.customerId != current_user.email and result.providerId != current_user.email:
+    # Note: customerId and providerId are UUIDs, current_user.id is also UUID
+    if result.customerId != current_user.id and result.providerId != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="You don't have permission to access this booking"
@@ -61,6 +62,7 @@ body example: {
 @booking_rate_limit()
 async def create_booking(
     payload: BookingCreateRequest, 
+    request: Request,
     current_user: User = Depends(get_current_user),
     service: BookingsService = Depends(get_booking_layer)
 ):

@@ -44,39 +44,73 @@ class BookingsService:
             return None
         
         # Get customer and provider details for email notifications
-        customer = self.users_repo.get_by_email(customer_id)  # Assuming customer_id is email
-        provider = self.users_repo.get_by_email(service.providerId)  # Assuming providerId is email
+        customer = self.users_repo.get_by_email(customer_id)  # customer_id is email
         
-        if not customer and not provider:
+        # provider.id is UUID, need to get provider by ID
+        provider_user = self.users_repo.get_by_id(service.providerId)  # providerId is UUID
+        
+        if not customer or not provider_user:
             return None
         
-        # Process payment first - MANDATORY for all bookings
+        # Create booking object with PENDING status and save it first
+        # (needed because payment has foreign key to bookings)
+        customer_uuid = customer.id
+        booking = Booking(
+            customerId=customer_uuid,
+            serviceId=payload.serviceId,
+            providerId=service.providerId,
+            status=BookingStatus.PENDING,  # Start as pending until payment succeeds
+            scheduledAt=payload.scheduledAt,
+            duration=service.durationMinutes,
+            totalAmount=service.price,
+            notes=payload.notes,
+        )
+        
+        # Save booking FIRST (payment table has FK to bookings)
+        created = self.bookings_repo.create_booking(booking)
+        
+        # Create a new PaymentRequest with the actual booking ID
+        from models import PaymentRequest
+        payment_req = PaymentRequest(
+            bookingId=created.id,
+            amount=payload.payment.amount,
+            currency=payload.payment.currency,
+            paymentMethod=payload.payment.paymentMethod
+        )
+        
+        # Process payment - MANDATORY for all bookings
         payments_service = PaymentsService(PaymentsRepository(self.bookings_repo.db))
-        payment = payments_service.process_payment(payload.payment)
+        payment = payments_service.process_payment(payment_req)
 
-        # If payment fails, don't create booking and process refund
+        # If payment fails, delete the booking and process refund
         if payment.status == "failed":
+            # Delete the booking since payment failed
+            self.bookings_repo.delete_booking(created.id)
             # Process refund for failed payment
             payments_service.process_refund(payment.id, "Payment failed - automatic refund")
             return None
 
-        # Payment succeeded, create the booking
-        booking = Booking(
-            customerId=customer_id,
-            serviceId=payload.serviceId,
-            providerId=service.providerId,
-            status=BookingStatus.CONFIRMED,  # Auto-confirm if payment succeeds
-            scheduledAt=payload.scheduledAt,
-            duration=service.duration,
-            totalAmount=service.price,
-            notes=payload.notes,
+        # Payment succeeded, update booking status to CONFIRMED
+        from models import Booking as BookingModel
+        updated_booking = BookingModel(
+            id=created.id,
+            customerId=created.customerId,
+            serviceId=created.serviceId,
+            providerId=created.providerId,
+            status=BookingStatus.CONFIRMED,
+            scheduledAt=created.scheduledAt,
+            duration=created.duration,
+            totalAmount=created.totalAmount,
+            notes=created.notes,
+            createdAt=created.createdAt,
+            updatedAt=created.updatedAt
         )
-        created = self.bookings_repo.create_booking(booking)
+        created = self.bookings_repo.update_booking(created.id, updated_booking)
         
         # Send email notifications
         try:
-            self.email_service.send_booking_confirmation(customer, provider, service, created)
-            self.email_service.send_booking_notification_to_provider(customer, provider, service, created)
+            self.email_service.send_booking_confirmation(customer, provider_user, service, created)
+            self.email_service.send_booking_notification_to_provider(customer, provider_user, service, created)
         except Exception as e:
             # Log error but don't fail the booking creation
             print(f"Email notification failed: {e}")
@@ -88,7 +122,7 @@ class BookingsService:
                 user_id=customer_id,
                 booking_id=created.id,
                 notification_type=NotificationType.BOOKING_CREATED,
-                service_title=service.title,
+                service_title=service.name,
                 scheduled_at=created.scheduledAt.isoformat() if created.scheduledAt else None
             )
             
@@ -97,7 +131,7 @@ class BookingsService:
                 user_id=service.providerId,
                 booking_id=created.id,
                 notification_type=NotificationType.BOOKING_CREATED,
-                service_title=service.title,
+                service_title=service.name,
                 scheduled_at=created.scheduledAt.isoformat() if created.scheduledAt else None
             )
         except Exception as e:
@@ -112,8 +146,13 @@ class BookingsService:
         if not existing:
             return None
         
-        # Authorization check: only customer or provider can update
-        if existing.customerId != current_user_email and existing.providerId != current_user_email:
+        # Get current user's UUID from email
+        current_user = self.users_repo.get_by_email(current_user_email)
+        if not current_user:
+            return None
+        
+        # Authorization check: only customer or provider can update (compare UUIDs)
+        if existing.customerId != current_user.id and existing.providerId != current_user.id:
             return None  # Service layer returns None for unauthorized access
         
         old_status = existing.status
@@ -135,9 +174,9 @@ class BookingsService:
             # Send email notification if status changed
             if payload.status and payload.status != old_status:
                 try:
-                    # Get user details for email
-                    customer = self.users_repo.get_by_email(existing.customerId)
-                    provider = self.users_repo.get_by_email(existing.providerId)
+                    # Get user details for email (customerId and providerId are UUIDs)
+                    customer = self.users_repo.get_by_id(existing.customerId)
+                    provider = self.users_repo.get_by_id(existing.providerId)
                     service = self.services_repo.get_service(existing.serviceId)
                     
                     if customer and provider and service:
@@ -158,7 +197,7 @@ class BookingsService:
                             user_id=existing.customerId,
                             booking_id=booking_id,
                             notification_type=NotificationType.BOOKING_UPDATED,
-                            service_title=service.title,
+                            service_title=service.name,
                             scheduled_at=saved.scheduledAt.isoformat() if saved.scheduledAt else None
                         )
                         
@@ -167,7 +206,7 @@ class BookingsService:
                             user_id=existing.providerId,
                             booking_id=booking_id,
                             notification_type=NotificationType.BOOKING_UPDATED,
-                            service_title=service.title,
+                            service_title=service.name,
                             scheduled_at=saved.scheduledAt.isoformat() if saved.scheduledAt else None
                         )
                 except Exception as e:
@@ -181,8 +220,13 @@ class BookingsService:
         if not existing:
             return False
         
-        # Authorization check: only customer or provider can delete
-        if existing.customerId != current_user_email and existing.providerId != current_user_email:
+        # Get current user's UUID from email
+        current_user = self.users_repo.get_by_email(current_user_email)
+        if not current_user:
+            return False
+        
+        # Authorization check: only customer or provider can delete (compare UUIDs)
+        if existing.customerId != current_user.id and existing.providerId != current_user.id:
             return False  # Service layer returns False for unauthorized access
         
         return self.bookings_repo.delete_booking(booking_id)

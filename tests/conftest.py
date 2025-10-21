@@ -1,231 +1,341 @@
+"""
+Pytest configuration and fixtures for testing
+"""
 import pytest
+import os
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
-import asyncio
+
+# Set test environment
+os.environ["TESTING"] = "1"
+os.environ["PAYMENT_FAILURE_RATE"] = "0.0"
+
 from main import app
 from database import get_db
-from models import User, UserRole, UserProfile, Service, ServiceAvailability, Booking, BookingStatus, PasswordResetToken
-from datetime import datetime, timezone, timedelta
-import json
-from unittest.mock import patch
-
-# Use an in-memory SQLite database for testing
-TEST_DATABASE_URL = "sqlite:///./test.db"
-TestingEngine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=TestingEngine)
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for each test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+from models import (
+    User, UserRole, UserProfile, Service, ServiceAvailability,
+    Booking, BookingStatus, PaymentMethod
+)
+from repositories.users_repository import UsersRepository
+from repositories.services_repository import ServicesRepository
+from repositories.bookings_repository import BookingsRepository
+from auth import authenticate_user, create_access_token
 
 
-@pytest.fixture(scope="function")
-def db_session():
-    """Create a fresh database session for each test."""
-    session = TestingSessionLocal()
-
-    # Create tables using raw SQL
-    from sqlalchemy import text
-
-    # Create users table
-    session.execute(text("""
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            email TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('customer', 'provider')),
-            profile TEXT NOT NULL,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        )
-    """))
-
-    # Create services table
-    session.execute(text("""
-        CREATE TABLE IF NOT EXISTS services (
-            id TEXT PRIMARY KEY,
-            provider_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            description TEXT NOT NULL,
-            category TEXT NOT NULL,
-            price REAL NOT NULL CHECK (price > 0),
-            currency TEXT DEFAULT 'USD',
-            duration INTEGER NOT NULL CHECK (duration > 0),
-            availability TEXT NOT NULL,
-            images TEXT DEFAULT '[]',
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        )
-    """))
-
-    # Create bookings table
-    session.execute(text("""
-        CREATE TABLE IF NOT EXISTS bookings (
-            id TEXT PRIMARY KEY,
-            customer_id TEXT NOT NULL,
-            service_id TEXT NOT NULL,
-            provider_id TEXT NOT NULL,
-            status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'completed', 'cancelled')),
-            scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
-            duration INTEGER NOT NULL CHECK (duration > 0),
-            total_amount REAL NOT NULL CHECK (total_amount > 0),
-            notes TEXT,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        )
-    """))
-
-    # Create password reset tokens table
-    session.execute(text("""
-        CREATE TABLE IF NOT EXISTS password_reset_tokens (
-            id TEXT PRIMARY KEY,
-            email TEXT NOT NULL,
-            token TEXT UNIQUE NOT NULL,
-            expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-            is_used BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        )
-    """))
-
-    session.commit()
-
-    try:
-        yield session
-    finally:
-        session.close()
-        # Drop tables after test
-        session = TestingSessionLocal()
-        session.execute(text("DROP TABLE IF EXISTS password_reset_tokens"))
-        session.execute(text("DROP TABLE IF EXISTS bookings"))
-        session.execute(text("DROP TABLE IF EXISTS services"))
-        session.execute(text("DROP TABLE IF EXISTS users"))
-        session.commit()
-        session.close()
+# Test database URL (using psycopg, not psycopg2)
+# Read from environment variable, fallback to local development database
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+psycopg://vishalchamaria@localhost:5432/marketplace_test"
+)
 
 
 @pytest.fixture(scope="function")
-def client(db_session):
-    """Create a test client with database dependency override."""
+def test_db():
+    """Create a test database session"""
+    engine = create_engine(TEST_DATABASE_URL)
+    TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    
+    # Create tables manually
+    with engine.connect() as conn:
+        # Drop all tables
+        conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+        conn.commit()
+        
+        # Create enums
+        conn.execute(text("CREATE TYPE userrole AS ENUM ('CUSTOMER', 'PROVIDER')"))
+        conn.execute(text("CREATE TYPE servicestatus AS ENUM ('PENDING', 'ACTIVE', 'INACTIVE', 'SUSPENDED')"))
+        conn.execute(text("CREATE TYPE bookingstatus AS ENUM ('PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED')"))
+        conn.commit()
+        
+        # Create tables
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                role UserRole NOT NULL,
+                profile JSONB,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS services (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                provider_id UUID NOT NULL REFERENCES users(id),
+                name VARCHAR(255) NOT NULL,
+                description TEXT,
+                price NUMERIC(10, 2) NOT NULL,
+                duration_minutes INTEGER NOT NULL,
+                availability JSONB NOT NULL DEFAULT '{}',
+                status ServiceStatus DEFAULT 'PENDING',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bookings (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                customer_id UUID NOT NULL REFERENCES users(id),
+                service_id UUID NOT NULL REFERENCES services(id),
+                provider_id UUID NOT NULL REFERENCES users(id),
+                status BookingStatus DEFAULT 'PENDING',
+                scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                duration_minutes INTEGER NOT NULL,
+                total_amount NUMERIC(10, 2) NOT NULL,
+                notes TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS payments (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                booking_id UUID NOT NULL REFERENCES bookings(id),
+                status VARCHAR(50) NOT NULL,
+                transaction_id VARCHAR(255) UNIQUE NOT NULL,
+                amount NUMERIC(10, 2) NOT NULL,
+                currency VARCHAR(10) NOT NULL,
+                payment_method JSONB NOT NULL,
+                failure_reason TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id VARCHAR(255) NOT NULL,
+                type VARCHAR(50) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                message TEXT NOT NULL,
+                data JSONB,
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                read_at TIMESTAMP WITH TIME ZONE
+            )
+        """))
+        
+        conn.commit()
+    
+    # Create session
+    session = TestSessionLocal()
+    
+    yield session
+    
+    # Cleanup
+    session.close()
+    engine.dispose()
+
+
+@pytest.fixture(scope="function")
+def client(test_db):
+    """Create a test client"""
     def override_get_db():
-        yield db_session
+        try:
+            yield test_db
+        finally:
+            pass
+    
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
-        yield c
+    
+    with TestClient(app) as test_client:
+        yield test_client
+    
     app.dependency_overrides.clear()
 
 
-# Sample data fixtures
 @pytest.fixture
-def sample_customer_profile():
-    """Sample customer profile data"""
-    return UserProfile(
-        firstName="John",
-        lastName="Doe",
-        phone="+1234567890",
-        address="123 Main St, City, State 12345"
-    )
-
-
-@pytest.fixture
-def sample_provider_profile():
-    """Sample provider profile data"""
-    return UserProfile(
-        firstName="Jane",
-        lastName="Smith",
-        phone="+0987654321",
-        address="456 Oak Ave, City, State 54321"
-    )
-
-
-@pytest.fixture
-def sample_customer(sample_customer_profile):
-    """Sample customer user"""
-    return User(
-        id="customer-123",
-        email="customer@test.com",
-        password="hashed_password",
+def sample_consumer(test_db):
+    """Create a sample consumer user"""
+    from services.users_service import UsersService
+    from models import UserCreateRequest
+    
+    users_repo = UsersRepository(test_db)
+    users_service = UsersService(users_repo)
+    
+    user_request = UserCreateRequest(
+        email="consumer123@example.com",
+        password="password123",  # Plaintext - will be hashed by service
         role=UserRole.CUSTOMER,
-        profile=sample_customer_profile,
-        createdAt=datetime.now(timezone.utc),
-        updatedAt=datetime.now(timezone.utc)
+        profile=UserProfile(
+            firstName="Jane",
+            lastName="Consumer",
+            phone="+1234567890",
+            address="123 Consumer St"
+        )
     )
+    
+    created_user_response = users_service.create_user(user_request)
+    # Get the actual user object from repository
+    created_user = users_repo.get_by_email("consumer123@example.com")
+    return created_user
 
 
 @pytest.fixture
-def sample_provider(sample_provider_profile):
-    """Sample provider user"""
-    return User(
-        id="provider-123",
-        email="provider@test.com",
-        password="hashed_password",
+def sample_provider(test_db):
+    """Create a sample provider user"""
+    from services.users_service import UsersService
+    from models import UserCreateRequest
+    
+    users_repo = UsersRepository(test_db)
+    users_service = UsersService(users_repo)
+    
+    user_request = UserCreateRequest(
+        email="provider123@example.com",
+        password="password123",  # Plaintext - will be hashed by service
         role=UserRole.PROVIDER,
-        profile=sample_provider_profile,
-        createdAt=datetime.now(timezone.utc),
-        updatedAt=datetime.now(timezone.utc)
+        profile=UserProfile(
+            firstName="John",
+            lastName="Provider",
+            phone="+1234567891",
+            address="456 Provider Ave"
+        )
     )
+    
+    created_user_response = users_service.create_user(user_request)
+    created_user = users_repo.get_by_email("provider123@example.com")
+    return created_user
 
 
 @pytest.fixture
-def sample_service_availability():
-    """Sample service availability data"""
-    return ServiceAvailability(
-        monday=["09:00-17:00"],
-        tuesday=["09:00-17:00"],
-        wednesday=["09:00-17:00"],
-        thursday=["09:00-17:00"],
-        friday=["09:00-17:00"],
-        saturday=[],
-        sunday=[]
+def other_consumer(test_db):
+    """Create another consumer user"""
+    from services.users_service import UsersService
+    from models import UserCreateRequest
+    
+    users_repo = UsersRepository(test_db)
+    users_service = UsersService(users_repo)
+    
+    user_request = UserCreateRequest(
+        email="otherconsumer@example.com",
+        password="password123",  # Plaintext - will be hashed by service
+        role=UserRole.CUSTOMER,
+        profile=UserProfile(
+            firstName="Other",
+            lastName="Consumer",
+            phone="+1234567892",
+            address="789 Other St"
+        )
     )
+    
+    created_user_response = users_service.create_user(user_request)
+    created_user = users_repo.get_by_email("otherconsumer@example.com")
+    return created_user
 
 
 @pytest.fixture
-def sample_service(sample_provider, sample_service_availability):
-    """Sample service"""
-    return Service(
-        id="service-123",
+def other_provider(test_db):
+    """Create another provider user"""
+    from services.users_service import UsersService
+    from models import UserCreateRequest
+    
+    users_repo = UsersRepository(test_db)
+    users_service = UsersService(users_repo)
+    
+    user_request = UserCreateRequest(
+        email="otherprovider@example.com",
+        password="password123",  # Plaintext - will be hashed by service
+        role=UserRole.PROVIDER,
+        profile=UserProfile(
+            firstName="Other",
+            lastName="Provider",
+            phone="+1234567893",
+            address="321 Other Ave"
+        )
+    )
+    
+    created_user_response = users_service.create_user(user_request)
+    created_user = users_repo.get_by_email("otherprovider@example.com")
+    return created_user
+
+
+@pytest.fixture
+def sample_service(test_db, sample_provider):
+    """Create a sample service"""
+    services_repo = ServicesRepository(test_db)
+    
+    service = Service(
         providerId=sample_provider.id,
-        title="Test Service",
-        description="A test service description",
-        category="consulting",
+        name="Test Service",
+        description="Test service description",
         price=100.0,
-        currency="USD",
-        duration=60,
-        availability=sample_service_availability,
-        images=["image1.jpg", "image2.jpg"],
-        isActive=True,
-        createdAt=datetime.now(timezone.utc)
+        durationMinutes=60,
+        availability=ServiceAvailability(
+            monday=["09:00", "17:00"],
+            wednesday=["09:00", "17:00"],
+            friday=["09:00", "17:00"]
+        ),
+        status="ACTIVE"
     )
+    
+    created_service = services_repo.create_service(service)
+    return created_service
 
 
 @pytest.fixture
-def sample_booking(sample_customer, sample_provider, sample_service):
-    """Sample booking"""
-    return Booking(
-        id="booking-123",
-        customerId=sample_customer.id,
+def sample_booking(test_db, sample_consumer, sample_service):
+    """Create a sample booking"""
+    bookings_repo = BookingsRepository(test_db)
+    
+    booking = Booking(
+        customerId=sample_consumer.id,
         serviceId=sample_service.id,
-        providerId=sample_provider.id,
-        status=BookingStatus.PENDING,
-        scheduledAt=datetime.now(timezone.utc) + timedelta(days=1),
-        duration=60,
-        totalAmount=100.0,
-        notes="Test booking",
-        createdAt=datetime.now(timezone.utc)
+        providerId=sample_service.providerId,
+        status=BookingStatus.CONFIRMED,
+        scheduledAt=datetime.now(timezone.utc) + timedelta(days=7),
+        duration=sample_service.durationMinutes,
+        totalAmount=sample_service.price,
+        notes="Sample booking"
     )
+    
+    created_booking = bookings_repo.create_booking(booking)
+    return created_booking
 
 
 @pytest.fixture
-def sample_password_reset_token(sample_customer):
-    """Sample password reset token"""
-    return PasswordResetToken(
-        id="token-123",
-        email=sample_customer.email,
-        token="reset_token_123",
-        expiresAt=datetime.now(timezone.utc) + timedelta(hours=24),
-        isUsed=False,
-        createdAt=datetime.now(timezone.utc)
-    )
+def consumer_token(client, sample_consumer):
+    """Get authentication token for consumer"""
+    response = client.post("/auth/login", json={
+        "email": "consumer123@example.com",
+        "password": "password123"
+    })
+    return response.json()["access_token"]
+
+
+@pytest.fixture
+def provider_token(client, sample_provider):
+    """Get authentication token for provider"""
+    response = client.post("/auth/login", json={
+        "email": "provider123@example.com",
+        "password": "password123"
+    })
+    return response.json()["access_token"]
+
+
+@pytest.fixture
+def other_consumer_token(client, other_consumer):
+    """Get authentication token for other consumer"""
+    response = client.post("/auth/login", json={
+        "email": "otherconsumer@example.com",
+        "password": "password123"
+    })
+    return response.json()["access_token"]
+
+
+@pytest.fixture
+def other_provider_token(client, other_provider):
+    """Get authentication token for other provider"""
+    response = client.post("/auth/login", json={
+        "email": "otherprovider@example.com",
+        "password": "password123"
+    })
+    return response.json()["access_token"]

@@ -11,10 +11,10 @@ class UserRole(str, Enum):
 
 
 class BookingStatus(str, Enum):
-    PENDING = "pending"
-    CONFIRMED = "confirmed"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
+    PENDING = "PENDING"
+    CONFIRMED = "CONFIRMED"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
 
 
 class UserProfile(BaseModel):
@@ -52,16 +52,14 @@ class ServiceAvailability(BaseModel):
 class Service(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     providerId: str
-    title: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=100)
     description: str = Field(..., min_length=1, max_length=1000)
-    category: str = Field(..., min_length=1, max_length=50)
     price: float = Field(..., gt=0)
-    currency: str = Field(default="USD", max_length=3)
-    duration: int = Field(..., gt=0, description="Duration in minutes")
-    availability: ServiceAvailability
-    images: List[str] = Field(default_factory=list)
-    isActive: bool = Field(default=True)
+    durationMinutes: int = Field(..., gt=0, description="Duration in minutes")
+    availability: ServiceAvailability = Field(default_factory=ServiceAvailability)
+    status: str = Field(default="PENDING")
     createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updatedAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Config:
         json_encoders = {
@@ -80,6 +78,7 @@ class Booking(BaseModel):
     totalAmount: float = Field(..., gt=0)
     notes: Optional[str] = Field(None, max_length=500)
     createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updatedAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Config:
         json_encoders = {
@@ -111,29 +110,24 @@ class UserResponse(BaseModel):
 
 
 class ServiceCreateRequest(BaseModel):
-    title: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=100)
     description: str = Field(..., min_length=1, max_length=1000)
-    category: str = Field(..., min_length=1, max_length=50)
     price: float = Field(..., gt=0)
-    currency: str = Field(default="USD", max_length=3)
-    duration: int = Field(..., gt=0, description="Duration in minutes")
+    durationMinutes: int = Field(..., gt=0, description="Duration in minutes")
     availability: ServiceAvailability
-    images: List[str] = Field(default_factory=list)
 
 
 class ServiceResponse(BaseModel):
     id: str
     providerId: str
-    title: str
+    name: str
     description: str
-    category: str
     price: float
-    currency: str
-    duration: int
+    durationMinutes: int
     availability: ServiceAvailability
-    images: List[str]
-    isActive: bool
+    status: str
     createdAt: datetime
+    updatedAt: datetime
 
     class Config:
         json_encoders = {

@@ -32,20 +32,29 @@ class BookingsRepository:
 
     def create_booking(self, booking: Booking) -> Booking:
         try:
-            query = insert(text("bookings")).values(
-                id=booking.id,
-                customer_id=booking.customerId,
-                service_id=booking.serviceId,
-                provider_id=booking.providerId,
-                status=booking.status.value,
-                scheduled_at=booking.scheduledAt,
-                duration=booking.duration,
-                total_amount=booking.totalAmount,
-                notes=booking.notes,
-                created_at=booking.createdAt
-            ).returning(text("*"))
+            query = text("""
+                INSERT INTO bookings (id, customer_id, service_id, provider_id, status,
+                                    scheduled_at, duration_minutes, total_amount, notes,
+                                    created_at, updated_at)
+                VALUES (:id, :customer_id, :service_id, :provider_id, :status,
+                        :scheduled_at, :duration_minutes, :total_amount, :notes,
+                        :created_at, :updated_at)
+                RETURNING *
+            """)
             
-            result = self.db.execute(query).fetchone()
+            result = self.db.execute(query, {
+                "id": booking.id,
+                "customer_id": booking.customerId,
+                "service_id": booking.serviceId,
+                "provider_id": booking.providerId,
+                "status": booking.status.value,
+                "scheduled_at": booking.scheduledAt,
+                "duration_minutes": booking.duration,
+                "total_amount": booking.totalAmount,
+                "notes": booking.notes,
+                "created_at": booking.createdAt,
+                "updated_at": booking.updatedAt
+            }).fetchone()
             self.db.commit()
             return self._row_to_model(result)
         except IntegrityError as e:
@@ -61,7 +70,7 @@ class BookingsRepository:
                     provider_id = :provider_id,
                     status = :status,
                     scheduled_at = :scheduled_at,
-                    duration = :duration,
+                    duration_minutes = :duration_minutes,
                     total_amount = :total_amount,
                     notes = :notes,
                     updated_at = :updated_at
@@ -76,7 +85,7 @@ class BookingsRepository:
                 "provider_id": updated.providerId,
                 "status": updated.status.value,
                 "scheduled_at": updated.scheduledAt,
-                "duration": updated.duration,
+                "duration_minutes": updated.duration,
                 "total_amount": updated.totalAmount,
                 "notes": updated.notes,
                 "updated_at": datetime.now(timezone.utc)
@@ -107,8 +116,9 @@ class BookingsRepository:
             providerId=str(row.provider_id),
             status=BookingStatus(row.status),
             scheduledAt=row.scheduled_at,
-            duration=row.duration,
+            duration=row.duration_minutes,
             totalAmount=float(row.total_amount),
             notes=row.notes,
             createdAt=row.created_at,
+            updatedAt=row.updated_at
         )

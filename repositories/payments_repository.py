@@ -19,9 +19,10 @@ class PaymentsRepository:
                                     payment_method, failure_reason, created_at, updated_at)
                 VALUES (:id, :booking_id, :status, :transaction_id, :amount, :currency, 
                         :payment_method, :failure_reason, :created_at, :updated_at)
+                RETURNING *
             """)
 
-            self.db.execute(query, {
+            result = self.db.execute(query, {
                 "id": payment.id,
                 "booking_id": payment.bookingId,
                 "status": payment.status,
@@ -32,9 +33,9 @@ class PaymentsRepository:
                 "failure_reason": payment.failureReason,
                 "created_at": payment.createdAt,
                 "updated_at": payment.updatedAt
-            })
+            }).fetchone()
             self.db.commit()
-            return payment
+            return self._row_to_model(result) if result else payment
         except IntegrityError as e:
             self.db.rollback()
             raise ValueError(f"Payment creation failed: {str(e)}") from e

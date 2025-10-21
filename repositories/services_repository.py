@@ -4,7 +4,7 @@ from sqlalchemy import text, insert, select, update, delete
 from sqlalchemy.exc import IntegrityError
 import json
 
-from models import Service
+from models import Service, ServiceAvailability
 
 
 class ServicesRepository:
@@ -24,23 +24,21 @@ class ServicesRepository:
     def create_service(self, service: Service) -> Service:
         try:
             query = text("""
-                INSERT INTO services (id, provider_id, title, description, category, price, currency, duration, availability, images, is_active, created_at)
-                VALUES (:id, :provider_id, :title, :description, :category, :price, :currency, :duration, :availability, :images, :is_active, :created_at)
+                INSERT INTO services (id, provider_id, name, description, price, duration_minutes, availability, status, created_at, updated_at)
+                VALUES (:id, :provider_id, :name, :description, :price, :duration_minutes, :availability, :status, :created_at, :updated_at)
             """)
             
             self.db.execute(query, {
                 "id": service.id,
                 "provider_id": service.providerId,
-                "title": service.title,
+                "name": service.name,
                 "description": service.description,
-                "category": service.category,
                 "price": service.price,
-                "currency": service.currency,
-                "duration": service.duration,
+                "duration_minutes": service.durationMinutes,
                 "availability": service.availability.model_dump_json(),
-                "images": json.dumps(service.images),
-                "is_active": service.isActive,
-                "created_at": service.createdAt
+                "status": service.status,
+                "created_at": service.createdAt,
+                "updated_at": service.updatedAt
             })
             self.db.commit()
             return service
@@ -52,25 +50,23 @@ class ServicesRepository:
         try:
             query = text("""
                 UPDATE services 
-                SET provider_id = :provider_id, title = :title, description = :description, 
-                    category = :category, price = :price, currency = :currency, 
-                    duration = :duration, availability = :availability, 
-                    images = :images, is_active = :is_active
+                SET provider_id = :provider_id, name = :name, description = :description, 
+                    price = :price, duration_minutes = :duration_minutes, 
+                    availability = :availability, status = :status, updated_at = :updated_at
+                    
                 WHERE id = :service_id
             """)
             
             result = self.db.execute(query, {
                 "service_id": service_id,
                 "provider_id": updated.providerId,
-                "title": updated.title,
+                "name": updated.name,
                 "description": updated.description,
-                "category": updated.category,
                 "price": updated.price,
-                "currency": updated.currency,
-                "duration": updated.duration,
+                "duration_minutes": updated.durationMinutes,
                 "availability": updated.availability.model_dump_json(),
-                "images": json.dumps(updated.images),
-                "is_active": updated.isActive
+                "status": updated.status,
+                "updated_at": updated.updatedAt
             })
             self.db.commit()
             return updated if result.rowcount > 0 else None
@@ -85,18 +81,19 @@ class ServicesRepository:
         return result.rowcount > 0
 
     def _row_to_model(self, row) -> Service:
-        from models import ServiceAvailability
+        # Parse availability JSON
+        availability_data = row.availability if hasattr(row, 'availability') and row.availability else {}
+        availability = ServiceAvailability(**availability_data)
+        
         return Service(
             id=str(row.id),
             providerId=str(row.provider_id),
-            title=row.title,
+            name=row.name,
             description=row.description,
-            category=row.category,
             price=float(row.price),
-            currency=row.currency,
-            duration=row.duration,
-            availability=ServiceAvailability(**json.loads(row.availability)),
-            images=json.loads(row.images),
-            isActive=row.is_active,
+            durationMinutes=row.duration_minutes,
+            availability=availability,
+            status=row.status,
             createdAt=row.created_at,
+            updatedAt=row.updated_at
         )
