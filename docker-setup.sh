@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Docker Setup Script for Service Marketplace API
-# This script helps set up and run the application using Docker
+# Simple Docker Setup Script for Service Marketplace API
+# This script sets up only the essential services: FastAPI app + PostgreSQL
 
 set -e
 
@@ -49,7 +49,6 @@ create_directories() {
     print_status "Creating necessary directories..."
     mkdir -p logs
     mkdir -p email_notifications
-    mkdir -p ssl
     print_success "Directories created"
 }
 
@@ -67,7 +66,7 @@ setup_env() {
 
 # Build and start services
 start_services() {
-    print_status "Building and starting Docker services..."
+    print_status "Building and starting Docker services (FastAPI + PostgreSQL only)..."
     docker-compose up --build -d
     print_success "Services started"
 }
@@ -105,7 +104,6 @@ show_status() {
     echo "  - Docs: http://localhost:8000/docs"
     echo "  - Health: http://localhost:8000/health"
     echo "  - Database: localhost:5432"
-    echo "  - Redis: localhost:6379"
 }
 
 # Show logs
@@ -132,9 +130,9 @@ cleanup() {
 # Main menu
 show_menu() {
     echo ""
-    echo "🐳 Docker Setup for Service Marketplace API"
-    echo "=============================================="
-    echo "1. Setup and start all services"
+    echo "🐳 Simple Docker Setup for Service Marketplace API"
+    echo "=================================================="
+    echo "1. Setup and start services (FastAPI + PostgreSQL)"
     echo "2. Start services only"
     echo "3. Stop services"
     echo "4. Show service status"

@@ -141,6 +141,23 @@ class ServiceResponse(BaseModel):
         }
 
 
+# Payment Models
+class PaymentMethod(BaseModel):
+    type: str = "card"  # Only card payments
+    cardNumber: str = Field(..., min_length=16, max_length=19)
+    expiryMonth: int = Field(..., ge=1, le=12)
+    expiryYear: int = Field(..., ge=2024)
+    cvv: str = Field(..., min_length=3, max_length=4)
+    cardholderName: str = Field(..., min_length=2, max_length=100)
+
+
+class PaymentRequest(BaseModel):
+    bookingId: str
+    amount: float = Field(..., gt=0)
+    currency: str = "USD"
+    paymentMethod: PaymentMethod
+
+
 class BookingCreateRequest(BaseModel):
     serviceId: str
     scheduledAt: datetime
@@ -206,23 +223,6 @@ class PasswordResetToken(BaseModel):
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
-
-
-# Payment Models
-class PaymentMethod(BaseModel):
-    type: str = "card"  # Only card payments
-    cardNumber: str = Field(..., min_length=16, max_length=19)
-    expiryMonth: int = Field(..., ge=1, le=12)
-    expiryYear: int = Field(..., ge=2024)
-    cvv: str = Field(..., min_length=3, max_length=4)
-    cardholderName: str = Field(..., min_length=2, max_length=100)
-
-
-class PaymentRequest(BaseModel):
-    bookingId: str
-    amount: float = Field(..., gt=0)
-    currency: str = "USD"
-    paymentMethod: PaymentMethod
 
 
 class PaymentResponse(BaseModel):
